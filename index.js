@@ -34,12 +34,24 @@ async function run() {
         await client.connect();
 
         const db = client.db('proFastDB'); // database name
+        const usersCollection = db.collection('users');
         const parcelCollection = db.collection('parcels');
         const paymentsCollection = db.collection('payments');
 
-        app.get('/parcels', async (req, res) => {
-            const parcels = await parcelCollection.find().toArray();
-            res.send(parcels);
+        //users api
+        app.post('/users', async (req, res) => {
+            const email = req.body.email;
+            const userExists = await usersCollection.findOne({ email });
+            if (userExists) {
+                return res.status(400).send({ message: 'User already exists' });
+            }
+            const user = req.body;
+            const result = await usersCollection.insertOne(user);
+            res.send(result);
+
+
+
+
         });
 
         // parcels api
