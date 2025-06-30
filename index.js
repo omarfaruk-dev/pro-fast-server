@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const admin = require("firebase-admin"); //firebase admin
 
 
 // Load environment variables from .env file
@@ -15,6 +16,15 @@ const port = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+
+//initialize firebase admin
+var serviceAccount = require("./firebase-admin-key.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.2vxppji.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -37,6 +47,27 @@ async function run() {
         const usersCollection = db.collection('users');
         const parcelCollection = db.collection('parcels');
         const paymentsCollection = db.collection('payments');
+   
+
+        //custom middlewares
+        const verifyFBToken = async(req, res, next) => {
+            const authHeader = req.headers.authorization;
+            if(!authHeader){
+                return res.status(401).send({ message: 'Unauthorized access' });
+            }
+            const token = authHeader.split(' ')[1];
+            if(!token){
+                return res.status(401).send({ message: 'Unauthorized access' });
+            }
+
+            const decoded = jwt.verify(token, process.env.FB_TOKEN);
+            req.user = decoded;
+            console.log('decoded', decoded);
+
+
+            next();
+
+        }
 
         //users api
         app.post('/users', async (req, res) => {
@@ -136,7 +167,10 @@ async function run() {
         });
 
 
-        app.get('/payments', async (req, res) => {
+        //payments api
+        app.get('/payments', verifyFBToken, async (req, res) => {
+
+
             try {
                 const userEmail = req.query.email;
 
