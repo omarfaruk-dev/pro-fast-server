@@ -22,7 +22,7 @@ app.use(express.json());
 var serviceAccount = require("./firebase-admin-key.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+    credential: admin.credential.cert(serviceAccount)
 });
 
 
@@ -47,25 +47,35 @@ async function run() {
         const usersCollection = db.collection('users');
         const parcelCollection = db.collection('parcels');
         const paymentsCollection = db.collection('payments');
-   
+        const ridersCollection = db.collection('riders');
+
+    
+
 
         //custom middlewares
-        const verifyFBToken = async(req, res, next) => {
+        const verifyFBToken = async (req, res, next) => {
             const authHeader = req.headers.authorization;
-            if(!authHeader){
+            if (!authHeader) {
                 return res.status(401).send({ message: 'Unauthorized access' });
             }
             const token = authHeader.split(' ')[1];
-            if(!token){
+            if (!token) {
                 return res.status(401).send({ message: 'Unauthorized access' });
             }
 
-            const decoded = jwt.verify(token, process.env.FB_TOKEN);
-            req.user = decoded;
-            console.log('decoded', decoded);
+            //verify token
+            try {
+                const decoded = await admin.auth().verifyIdToken(token);
+                req.decoded = decoded;
+                next();
+
+            } catch (error) {
+                return res.status(403).send({ message: 'Forbidden access' });
+            }
 
 
-            next();
+
+           
 
         }
 
@@ -149,9 +159,59 @@ async function run() {
             }
         });
 
+        //riders api
+        app.post('/riders', async (req, res) => {
+            const rider = req.body;
+            const result = await ridersCollection.insertOne(rider);
+            res.send(result);
+        });
+
+        //get pending riders
+        app.get("/riders/pending", async (req, res) => {
+            try {
+                const pendingRiders = await ridersCollection
+                    .find({ status: "pending" })
+                    .toArray();
+
+                res.send(pendingRiders);
+            } catch (error) {
+                console.error("Failed to load pending riders:", error);
+                res.status(500).send({ message: "Failed to load pending riders" });
+            }
+        });
+
+        //get active riders
+        app.get("/riders/active", async (req, res) => {
+            const result = await ridersCollection.find({ status: "active" }).toArray();
+            res.send(result);
+        });
+
+        //update rider status
+        app.patch("/riders/:id/status", async (req, res) => {
+            const { id } = req.params;
+            const { status } = req.body;
+            const query = { _id: new ObjectId(id) }
+            const updateDoc = {
+                $set:
+                {
+                    status
+                }
+            }
+
+            try {
+                const result = await ridersCollection.updateOne(
+                    query, updateDoc
+
+                );
+                res.send(result);
+            } catch (err) {
+                res.status(500).send({ message: "Failed to update rider status" });
+            }
+        });
+
 
         app.post("/tracking", async (req, res) => {
-            const { tracking_id, parcel_id, status, message, updated_by='' } = req.body;
+            const { tracking_id, parcel_id, status, message, updated_by = '' } = req.body;
 
             const log = {
                 tracking_id,
@@ -173,6 +233,9 @@ async function run() {
 
             try {
                 const userEmail = req.query.email;
+                if(req.decoded.email !== userEmail){
+                    return res.status(403).send({ message: 'Forbidden access' });
+                }
 
                 const query = userEmail ? { email: userEmail } : {};
                 const options = { sort: { paid_at: -1 } }; // Latest first
